@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173"
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "build:firebase": "DEPLOY_TARGET=firebase vite build",
+    "deploy:firebase": "bunx firebase-tools deploy --only hosting"
   },
   "dependencies": {
     "react": "^19.2.0",
