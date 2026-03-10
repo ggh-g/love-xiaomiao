@@ -84,28 +84,9 @@ export default function App() {
   const [notice, setNotice] = useState("欢迎来到小喵宝宝爱心银行~");
   const [activeLogTab, setActiveLogTab] = useState("heart");
 
-  const totalAdded = useMemo(
-    () => heartLogs.reduce((sum, item) => sum + (item.amount || 0), 0),
-    [heartLogs]
-  );
   const redeemableCount = useMemo(
     () => REWARDS.filter((item) => hearts >= item.cost).length,
     [hearts]
-  );
-
-  const maxRewardCost = useMemo(
-    () => Math.max(...REWARDS.map((item) => item.cost)),
-    []
-  );
-
-  const nextReward = useMemo(
-    () => REWARDS.find((item) => hearts < item.cost) || null,
-    [hearts]
-  );
-
-  const progressPercent = Math.min(
-    100,
-    Math.round((hearts / Math.max(1, maxRewardCost)) * 100)
   );
 
   useEffect(() => {
@@ -114,10 +95,6 @@ export default function App() {
       JSON.stringify({ hearts, heartLogs, redeemLogs })
     );
   }, [hearts, heartLogs, redeemLogs]);
-
-  const onQuickAmount = (n) => {
-    setAmountInput(String(n));
-  };
 
   const onAddHearts = (event) => {
     event.preventDefault();
@@ -187,7 +164,7 @@ export default function App() {
       <div className="cute-shell">
         <section className="bubble-card hero-card">
           <div className="hero-head">
-            <p className="cute-chip">🐰 女朋友专属 · 甜甜模式</p>
+            <p className="cute-chip">🐱 甜甜模式</p>
             <button type="button" className="ghost-btn" onClick={onReset}>
               重置
             </button>
@@ -204,19 +181,6 @@ export default function App() {
               <div>
                 <p className="heart-label">当前爱心</p>
                 <p className="heart-count">{hearts}</p>
-              </div>
-            </div>
-            <div className="progress-box">
-              <p className="progress-text">
-                累计存入 {totalAdded} 颗 · {nextReward
-                  ? `下一目标 ${nextReward.name}（差 ${nextReward.cost - hearts}）`
-                  : "已可兑换全部礼物"}
-              </p>
-              <div className="meter-track">
-                <div
-                  className="meter-fill"
-                  style={{ width: `${progressPercent}%` }}
-                />
               </div>
             </div>
           </div>
@@ -239,19 +203,6 @@ export default function App() {
                     className="cute-input"
                   />
                 </label>
-
-                <div className="quick-row">
-                  {[1, 3, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className="quick-btn"
-                      onClick={() => onQuickAmount(n)}
-                    >
-                      快速 {n}
-                    </button>
-                  ))}
-                </div>
 
                 <label className="field-wrap">
                   <span className="field-label">添加理由</span>
