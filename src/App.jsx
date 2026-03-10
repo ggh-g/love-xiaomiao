@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import loveCallImage from "./assets/rewards/love-call.svg";
+import loveGiftImage from "./assets/rewards/love-gift.svg";
 
 const STORAGE_KEY = "cute-love-bank-v3";
 
@@ -7,7 +9,7 @@ const REWARDS = [
     id: "love-call",
     name: "爱心电话",
     icon: "📞",
-    image: "/rewards/love-call.svg",
+    image: loveCallImage,
     cost: 5,
     description: "选择某个时间陪伴小喵。",
   },
@@ -15,7 +17,7 @@ const REWARDS = [
     id: "love-gift",
     name: "盲盒小礼物",
     icon: "🎁",
-    image: "/rewards/love-gift.svg",
+    image: loveGiftImage,
     cost: 10,
     description: "未知的精心挑选的小礼物。",
   },

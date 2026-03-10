@@ -1,0 +1,20 @@
+<svg width="640" height="360" viewBox="0 0 640 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="640" y2="360" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE4EC"/>
+      <stop offset="1" stop-color="#FFF1C7"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="220" y1="92" x2="420" y2="266" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FB7185"/>
+      <stop offset="1" stop-color="#F43F5E"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" rx="44" fill="url(#bg)"/>
+  <circle cx="124" cy="86" r="30" fill="#FBCFE8" fill-opacity="0.6"/>
+  <circle cx="550" cy="270" r="46" fill="#FDE68A" fill-opacity="0.55"/>
+  <rect x="230" y="76" width="180" height="220" rx="32" fill="url(#phone)"/>
+  <rect x="250" y="96" width="140" height="156" rx="18" fill="#FFE4EC"/>
+  <circle cx="320" cy="273" r="10" fill="#FFE4EC"/>
+  <path d="M179 170C179 170 148 137 129 154C111 170 138 207 160 227C182 247 223 275 241 257C259 239 224 212 224 212" stroke="#FB7185" stroke-width="16" stroke-linecap="round"/>
+  <text x="320" y="332" text-anchor="middle" font-size="34" font-family="Arial, sans-serif" font-weight="700" fill="#BE185D">爱心电话</text>
+</svg>
