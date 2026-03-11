@@ -119,6 +119,11 @@ body {
   background: #ffe4ec;
 }
 
+.ghost-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .cute-title {
   font-family: "ZCOOL KuaiLe", "Baloo 2", sans-serif;
   margin: 0.5rem 0 0;
@@ -296,6 +301,13 @@ body {
 .main-btn:hover {
   filter: brightness(1.03);
   transform: translateY(-1px);
+}
+
+.main-btn:disabled {
+  filter: none;
+  opacity: 0.8;
+  cursor: wait;
+  transform: none;
 }
 
 .reward-list {
@@ -515,6 +527,16 @@ body {
   margin: 0.2rem 0 0;
   color: #94a3b8;
   font-size: 0.76rem;
+}
+
+.log-empty {
+  border-radius: 14px;
+  border: 1px dashed #fbcfe8;
+  background: #fff7fb;
+  color: #94a3b8;
+  font-size: 0.84rem;
+  text-align: center;
+  padding: 1rem 0.85rem;
 }
 
 .notice-bubble {

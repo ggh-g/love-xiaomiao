@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import loveCallImage from "./assets/rewards/love-call.svg";
 import loveGiftImage from "./assets/rewards/love-gift.svg";
+import {
+  LOVE_BANK_ID,
+  fetchLoveBankEvents,
+  insertLoveBankEvents,
+  resetLoveBankEvents,
+  supabaseEnabled,
+} from "./lib/supabase";
 
-const STORAGE_KEY = "cute-love-bank-v3";
+const CACHE_KEY = "cute-love-bank-cache-v4";
+const MAX_LOG_ITEMS = 36;
 
 const REWARDS = [
   {
@@ -23,11 +31,12 @@ const REWARDS = [
   },
 ];
 
-const DEFAULT_HEART_LOGS = [];
+function formatDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
 
-const DEFAULT_REDEEM_LOGS = [];
-
-function formatDateTime(date) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
@@ -36,67 +45,243 @@ function formatDateTime(date) {
   return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
-function makeId(prefix) {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return `${prefix}-${crypto.randomUUID()}`;
+function normalizeEvent(item) {
+  if (!item || typeof item !== "object") {
+    return null;
   }
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+  const kind = item.kind === "redeem" ? "redeem" : "heart";
+  const amount = Number(item.amount);
+  const label =
+    typeof item.label === "string"
+      ? item.label.trim()
+      : typeof item.reason === "string"
+        ? item.reason.trim()
+        : typeof item.name === "string"
+          ? item.name.trim()
+          : "";
+  const createdAt =
+    typeof item.created_at === "string"
+      ? item.created_at
+      : typeof item.time === "string"
+        ? new Date(item.time).toISOString()
+        : new Date().toISOString();
+
+  if (!Number.isFinite(amount) || amount <= 0 || !label) {
+    return null;
+  }
+
+  return {
+    id:
+      typeof item.id === "string" && item.id
+        ? item.id
+        : `${kind}-${createdAt}-${label.slice(0, 8)}`,
+    bank_id:
+      typeof item.bank_id === "string" && item.bank_id
+        ? item.bank_id
+        : LOVE_BANK_ID,
+    kind,
+    amount,
+    label,
+    created_at: createdAt,
+  };
 }
 
-function getInitialState() {
-  const fallback = {
-    hearts: 0,
-    heartLogs: DEFAULT_HEART_LOGS,
-    redeemLogs: DEFAULT_REDEEM_LOGS,
-  };
+function sortEvents(events) {
+  return [...events].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+}
+
+function getCachedEvents() {
   if (typeof window === "undefined") {
-    return fallback;
+    return [];
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return {
-      hearts:
-        typeof parsed.hearts === "number" && parsed.hearts >= 0
-          ? parsed.hearts
-          : fallback.hearts,
-      heartLogs: Array.isArray(parsed.heartLogs)
-        ? parsed.heartLogs
-        : fallback.heartLogs,
-      redeemLogs: Array.isArray(parsed.redeemLogs)
-        ? parsed.redeemLogs
-        : fallback.redeemLogs,
-    };
+    if (!Array.isArray(parsed)) return [];
+    return sortEvents(parsed.map(normalizeEvent).filter(Boolean));
   } catch (_error) {
-    return fallback;
+    return [];
   }
 }
 
+function makeLocalEvent(kind, amount, label) {
+  return {
+    id: `${kind}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    bank_id: LOVE_BANK_ID,
+    kind,
+    amount,
+    label,
+    created_at: new Date().toISOString(),
+  };
+}
+
 export default function App() {
-  const initial = useMemo(() => getInitialState(), []);
-  const [hearts, setHearts] = useState(initial.hearts);
-  const [heartLogs, setHeartLogs] = useState(initial.heartLogs);
-  const [redeemLogs, setRedeemLogs] = useState(initial.redeemLogs);
+  const cachedEvents = useMemo(() => getCachedEvents(), []);
+  const [events, setEvents] = useState(cachedEvents);
   const [amountInput, setAmountInput] = useState("1");
   const [reasonInput, setReasonInput] = useState("");
-  const [notice, setNotice] = useState("欢迎来到小喵宝宝爱心银行~");
+  const [notice, setNotice] = useState(
+    supabaseEnabled
+      ? "正在连接小喵宝宝的云端爱心银行..."
+      : "未配置 Supabase，当前仍是本地模式。"
+  );
   const [activeLogTab, setActiveLogTab] = useState("heart");
+  const [isLoading, setIsLoading] = useState(supabaseEnabled);
+  const [isMutating, setIsMutating] = useState(false);
+  const [syncState, setSyncState] = useState(
+    supabaseEnabled ? "connecting" : "local"
+  );
+
+  const heartLogs = useMemo(
+    () =>
+      events
+        .filter((item) => item.kind === "heart")
+        .slice(0, MAX_LOG_ITEMS)
+        .map((item) => ({
+          id: item.id,
+          amount: item.amount,
+          reason: item.label,
+          time: formatDateTime(item.created_at),
+        })),
+    [events]
+  );
+
+  const redeemLogs = useMemo(
+    () =>
+      events
+        .filter((item) => item.kind === "redeem")
+        .slice(0, MAX_LOG_ITEMS)
+        .map((item) => ({
+          id: item.id,
+          cost: item.amount,
+          name: item.label,
+          time: formatDateTime(item.created_at),
+        })),
+    [events]
+  );
+
+  const hearts = useMemo(
+    () =>
+      events.reduce(
+        (sum, item) => sum + (item.kind === "heart" ? item.amount : -item.amount),
+        0
+      ),
+    [events]
+  );
 
   const redeemableCount = useMemo(
     () => REWARDS.filter((item) => hearts >= item.cost).length,
     [hearts]
   );
 
-  useEffect(() => {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ hearts, heartLogs, redeemLogs })
-    );
-  }, [hearts, heartLogs, redeemLogs]);
+  const isBusy = isLoading || isMutating;
 
-  const onAddHearts = (event) => {
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(events));
+  }, [events]);
+
+  useEffect(() => {
+    if (!supabaseEnabled) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadEvents() {
+      setIsLoading(true);
+      try {
+        const remoteData = await fetchLoveBankEvents();
+
+        if (cancelled) {
+          return;
+        }
+
+        const remoteEvents = sortEvents(
+          (remoteData ?? []).map(normalizeEvent).filter(Boolean)
+        );
+
+        if (remoteEvents.length === 0 && cachedEvents.length > 0) {
+          const payload = cachedEvents.map((item) => ({
+            bank_id: LOVE_BANK_ID,
+            kind: item.kind,
+            amount: item.amount,
+            label: item.label,
+            created_at: item.created_at,
+          }));
+
+          const migratedData = await insertLoveBankEvents(payload);
+
+          if (cancelled) {
+            return;
+          }
+
+          const migratedEvents = sortEvents(
+            (migratedData ?? []).map(normalizeEvent).filter(Boolean)
+          );
+          setEvents(migratedEvents);
+          setSyncState("cloud");
+          setNotice("已把本地爱心记录迁移到云端。");
+          setIsLoading(false);
+          return;
+        }
+
+        setEvents(remoteEvents);
+        setSyncState("cloud");
+        setNotice(
+          remoteEvents.length > 0 ? "云端同步成功。" : "云端爱心银行已经准备好。"
+        );
+      } catch (_error) {
+        if (!cancelled) {
+          setSyncState("error");
+          setNotice("云端读取失败，先使用本地缓存。");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cachedEvents]);
+
+  async function insertRemoteEvent(kind, amount, label) {
+    const data = await insertLoveBankEvents({
+      bank_id: LOVE_BANK_ID,
+      kind,
+      amount,
+      label,
+    });
+
+    const event = normalizeEvent(Array.isArray(data) ? data[0] : data);
+    if (!event) {
+      throw new Error("invalid_event_payload");
+    }
+
+    setEvents((prev) => sortEvents([event, ...prev]));
+    setSyncState("cloud");
+  }
+
+  function insertLocalFallbackEvent(kind, amount, label) {
+    const event = makeLocalEvent(kind, amount, label);
+    setEvents((prev) => sortEvents([event, ...prev]));
+    setSyncState("local");
+    return event;
+  }
+
+  const onAddHearts = async (event) => {
     event.preventDefault();
     const amount = Number(amountInput);
     const reason = reasonInput.trim();
@@ -110,49 +295,77 @@ export default function App() {
       return;
     }
 
-    const newLog = {
-      id: makeId("heart"),
-      amount,
-      reason,
-      time: formatDateTime(new Date()),
-    };
+    setIsMutating(true);
 
-    setHearts((prev) => prev + amount);
-    setHeartLogs((prev) => [newLog, ...prev].slice(0, 36));
-    setActiveLogTab("heart");
-    setAmountInput("1");
-    setReasonInput("");
-    setNotice(`已存入 ${amount} 颗爱心，甜度上升中~`);
+    try {
+      if (supabaseEnabled) {
+        await insertRemoteEvent("heart", amount, reason);
+        setNotice(`已同步到云端：存入 ${amount} 颗爱心。`);
+      } else {
+        insertLocalFallbackEvent("heart", amount, reason);
+        setNotice(`已本地存入 ${amount} 颗爱心，请先配置 Supabase。`);
+      }
+
+      setActiveLogTab("heart");
+      setAmountInput("1");
+      setReasonInput("");
+    } catch (_error) {
+      setSyncState("error");
+      setNotice("保存失败了，稍后再试一次。");
+    } finally {
+      setIsMutating(false);
+    }
   };
 
-  const onRedeem = (item) => {
+  const onRedeem = async (item) => {
     if (hearts < item.cost) {
       setNotice(`爱心不够啦，还差 ${item.cost - hearts} 颗。`);
       return;
     }
 
-    setHearts((prev) => prev - item.cost);
-    setRedeemLogs((prev) => [
-      {
-        id: makeId("redeem"),
-        name: item.name,
-        cost: item.cost,
-        time: formatDateTime(new Date()),
-      },
-      ...prev,
-    ]);
-    setActiveLogTab("redeem");
-    setNotice(`兑换成功：${item.name} ${item.icon}`);
+    setIsMutating(true);
+
+    try {
+      if (supabaseEnabled) {
+        await insertRemoteEvent("redeem", item.cost, item.name);
+        setNotice(`已同步兑换：${item.name} ${item.icon}`);
+      } else {
+        insertLocalFallbackEvent("redeem", item.cost, item.name);
+        setNotice(`已本地兑换：${item.name}，请先配置 Supabase。`);
+      }
+
+      setActiveLogTab("redeem");
+    } catch (_error) {
+      setSyncState("error");
+      setNotice("兑换失败了，稍后再试一次。");
+    } finally {
+      setIsMutating(false);
+    }
   };
 
-  const onReset = () => {
-    setHearts(0);
-    setHeartLogs(DEFAULT_HEART_LOGS);
-    setRedeemLogs(DEFAULT_REDEEM_LOGS);
-    setActiveLogTab("heart");
-    setAmountInput("1");
-    setReasonInput("");
-    setNotice("已恢复初始状态。");
+  const onReset = async () => {
+    setIsMutating(true);
+
+    try {
+      if (supabaseEnabled) {
+        await resetLoveBankEvents();
+        setSyncState("cloud");
+        setNotice("云端数据已清空。");
+      } else {
+        setSyncState("local");
+        setNotice("本地缓存已清空，请先配置 Supabase。");
+      }
+
+      setEvents([]);
+      setActiveLogTab("heart");
+      setAmountInput("1");
+      setReasonInput("");
+    } catch (_error) {
+      setSyncState("error");
+      setNotice("重置失败了，稍后再试一次。");
+    } finally {
+      setIsMutating(false);
+    }
   };
 
   return (
@@ -165,7 +378,12 @@ export default function App() {
         <section className="bubble-card hero-card">
           <div className="hero-head">
             <p className="cute-chip">🐱 甜甜模式</p>
-            <button type="button" className="ghost-btn" onClick={onReset}>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={onReset}
+              disabled={isBusy}
+            >
               重置
             </button>
           </div>
@@ -201,6 +419,7 @@ export default function App() {
                     value={amountInput}
                     onChange={(e) => setAmountInput(e.target.value)}
                     className="cute-input"
+                    disabled={isBusy}
                   />
                 </label>
 
@@ -212,11 +431,12 @@ export default function App() {
                     onChange={(e) => setReasonInput(e.target.value)}
                     placeholder="比如：今天下雨来接我，还带了热奶茶。"
                     className="cute-input"
+                    disabled={isBusy}
                   />
                 </label>
 
-                <button type="submit" className="main-btn">
-                  存入到爱心罐
+                <button type="submit" className="main-btn" disabled={isBusy}>
+                  {isBusy ? "同步中..." : "存入到爱心罐"}
                 </button>
               </form>
             </article>
@@ -226,12 +446,20 @@ export default function App() {
               <p className="notice-bubble side-notice">{notice}</p>
               <div className="mini-stat-grid">
                 <div className="mini-stat">
-                  <p className="mini-stat-label">可兑换项目</p>
-                  <p className="mini-stat-value">{redeemableCount}</p>
+                  <p className="mini-stat-label">同步状态</p>
+                  <p className="mini-stat-value">
+                    {syncState === "cloud"
+                      ? "云端已连接"
+                      : syncState === "connecting"
+                        ? "连接中"
+                        : syncState === "error"
+                          ? "同步失败"
+                          : "本地模式"}
+                  </p>
                 </div>
                 <div className="mini-stat">
-                  <p className="mini-stat-label">最近一条记录</p>
-                  <p className="mini-stat-value">{heartLogs[0]?.amount ?? 0} 颗</p>
+                  <p className="mini-stat-label">可兑换项目</p>
+                  <p className="mini-stat-value">{redeemableCount}</p>
                 </div>
               </div>
             </article>
@@ -244,7 +472,7 @@ export default function App() {
 
               <div className="reward-list">
                 {REWARDS.map((item) => {
-                  const canRedeem = hearts >= item.cost;
+                  const canRedeem = hearts >= item.cost && !isBusy;
                   const itemProgress = Math.min(
                     100,
                     Math.round((hearts / item.cost) * 100)
@@ -278,9 +506,11 @@ export default function App() {
                         onClick={() => onRedeem(item)}
                         className="exchange-btn"
                       >
-                        {canRedeem
-                          ? `兑换 ${item.name}`
-                          : `还差 ${item.cost - hearts} 颗爱心`}
+                        {isBusy
+                          ? "同步中..."
+                          : hearts >= item.cost
+                            ? `兑换 ${item.name}`
+                            : `还差 ${item.cost - hearts} 颗爱心`}
                       </button>
                     </div>
                   );
@@ -324,15 +554,19 @@ export default function App() {
                   <span className="log-count">{heartLogs.length} 条</span>
                 </div>
                 <ul className="log-list">
-                  {heartLogs.map((item) => (
-                    <li key={item.id} className="log-item heart-log-item">
-                      <div className="log-top">
-                        <p className="log-text">{item.reason}</p>
-                        <span className="log-value">+{item.amount}</span>
-                      </div>
-                      <p className="log-time">{item.time}</p>
-                    </li>
-                  ))}
+                  {heartLogs.length > 0 ? (
+                    heartLogs.map((item) => (
+                      <li key={item.id} className="log-item heart-log-item">
+                        <div className="log-top">
+                          <p className="log-text">{item.reason}</p>
+                          <span className="log-value">+{item.amount}</span>
+                        </div>
+                        <p className="log-time">{item.time}</p>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="log-empty">还没有爱心记录。</li>
+                  )}
                 </ul>
               </article>
 
@@ -346,15 +580,19 @@ export default function App() {
                   <span className="log-count">{redeemLogs.length} 条</span>
                 </div>
                 <ul className="log-list">
-                  {redeemLogs.map((item) => (
-                    <li key={item.id} className="log-item reward-log-item">
-                      <div className="log-top">
-                        <p className="log-text">{item.name}</p>
-                        <span className="log-value">-{item.cost}</span>
-                      </div>
-                      <p className="log-time">{item.time}</p>
-                    </li>
-                  ))}
+                  {redeemLogs.length > 0 ? (
+                    redeemLogs.map((item) => (
+                      <li key={item.id} className="log-item reward-log-item">
+                        <div className="log-top">
+                          <p className="log-text">{item.name}</p>
+                          <span className="log-value">-{item.cost}</span>
+                        </div>
+                        <p className="log-time">{item.time}</p>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="log-empty">还没有兑换记录。</li>
+                  )}
                 </ul>
               </article>
             </section>
