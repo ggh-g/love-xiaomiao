@@ -31,6 +31,9 @@ jobs:
       - name: Build
         env:
           DEPLOY_TARGET: github-pages
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_BANK_ID: ${{ secrets.VITE_SUPABASE_BANK_ID }}
         run: bun run build
 
       - name: Upload artifact
